@@ -6,17 +6,21 @@ from pathlib import Path
 from playwright.async_api import async_playwright
 import requests
 
+# Environment variables from GitHub Secrets
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 
+# Constants
 CSV_FILE = "ticket_history.csv"
 ALERT_WINDOW = 1800  # 30 minutes
-MAX_TICKETS = 5000
+MAX_TICKETS = 5000   # max tickets for prediction
 
 def send(msg):
+    """Send Telegram message."""
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     requests.post(url, data={"chat_id": CHAT_ID, "text": msg})
 
+# Load history of tickets sold
 history = {}
 if Path(CSV_FILE).exists():
     with open(CSV_FILE, newline="") as f:
@@ -24,6 +28,7 @@ if Path(CSV_FILE).exists():
         for row in reader:
             history[row["title"]] = {"sold": float(row["sold"]), "time": float(row["timestamp"])}
 
+# Simple RRP estimate based on title keywords
 def estimate_rrp(title):
     t = title.lower()
     if "driver" in t: return 500
@@ -34,8 +39,9 @@ def estimate_rrp(title):
     if "rangefinder" in t: return 250
     return 200
 
+# Threshold for overlay to trigger alert
 def alert_threshold(rrp):
-    return rrp * 0.4  # only alert if overlay > 40% of prize
+    return rrp * 0.4
 
 async def main():
     async with async_playwright() as p:
@@ -43,14 +49,17 @@ async def main():
         page = await browser.new_page()
         await page.route("**/*", lambda route: route.abort() if route.request.resource_type in ["image", "font", "media"] else route.continue_())
 
-        for page_num in range(1, 3):  # first 2 pages
+        # Scan first 2 pages
+        for page_num in range(1, 3):
             url = f"https://mashedpotatogolfcomps.co.uk/competitions/" if page_num == 1 else f"https://mashedpotatogolfcomps.co.uk/competitions/page/{page_num}/"
             await page.goto(url, timeout=0)
             await page.wait_for_selector("li.product")
             await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
             await page.wait_for_timeout(1500)
+
             cards = page.locator("li.product.type-product, li.swiper-slide")
             count = await cards.count()
+            print(f"Found {count} competition cards on page {page_num}")
 
             for i in range(count):
                 card = cards.nth(i)
@@ -66,6 +75,7 @@ async def main():
                     remaining = int(await remaining_elem.inner_text()) if await remaining_elem.count() > 0 else None
                     sold_tickets = MAX_TICKETS - remaining if remaining else MAX_TICKETS*(sold_percent/100)
 
+                    # Countdown
                     countdown = card.locator("div.zapc-countdown")
                     draw_in_seconds = 0
                     if await countdown.count() > 0:
@@ -84,17 +94,20 @@ async def main():
                         if delta_time > 0:
                             rate_per_sec = delta_sold / delta_time
                             predicted_sold = sold_tickets + rate_per_sec * draw_in_seconds
+                            # Late-rush multiplier
                             if draw_in_seconds < 3600: predicted_sold *= 1.35
                             elif draw_in_seconds < 7200: predicted_sold *= 1.2
                             elif draw_in_seconds < 14400: predicted_sold *= 1.1
                     predicted_sold = min(MAX_TICKETS, predicted_sold)
 
+                    # Overlay & EV
                     rrp = estimate_rrp(title)
                     revenue = predicted_sold * price
                     overlay = rrp - revenue
                     ev = (rrp / predicted_sold) - price
                     threshold = alert_threshold(rrp)
 
+                    # ✅ Only send alert if profitable
                     if 0 < draw_in_seconds <= ALERT_WINDOW and overlay > threshold and ev > 0:
                         msg = f"""🔥 Overlay Opportunity
 
@@ -114,6 +127,7 @@ Time remaining: {draw_in_seconds//3600}h {(draw_in_seconds%3600)//60}m
 """
                         send(msg)
 
+                    # Update history
                     history[title] = {"sold": sold_tickets, "time": now}
 
                 except Exception as e:
