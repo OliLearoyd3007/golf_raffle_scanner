@@ -2,26 +2,27 @@ name: raffle-scanner
 
 on:
   workflow_dispatch:
-
   schedule:
     - cron: "*/15 * * * *"
 
 jobs:
   run:
     runs-on: ubuntu-latest
-
     steps:
-
       - uses: actions/checkout@v3
 
-      - name: install python
+      - name: Setup Python
         uses: actions/setup-python@v4
         with:
           python-version: "3.11"
 
-      - run: pip install requests beautifulsoup4
+      - name: Install dependencies
+        run: |
+          pip install playwright requests
+          playwright install
 
-      - run: python scanner.py
+      - name: Run scanner
+        run: python scanner.py
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           CHAT_ID: ${{ secrets.CHAT_ID }}
