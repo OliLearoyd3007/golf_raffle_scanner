@@ -58,3 +58,4 @@ Estimated overlay £{round(overlay,2)}
 
 Ticket price £{price}
 """)
+send("Test message from GitHub bot")
