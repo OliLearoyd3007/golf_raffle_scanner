@@ -1,6 +1,8 @@
 name: raffle-scanner
 
 on:
+  workflow_dispatch:
+
   schedule:
     - cron: "*/15 * * * *"
 
