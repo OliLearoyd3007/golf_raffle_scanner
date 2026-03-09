@@ -104,4 +104,4 @@ Overlay: £{round(overlay,2)}
 
 for a in alerts:
     send(a)
-
+send("Checking the comms are working")
