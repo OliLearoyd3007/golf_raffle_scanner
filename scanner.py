@@ -11,24 +11,14 @@ CHAT_ID = os.getenv("CHAT_ID")
 
 CSV_FILE = "ticket_history.csv"
 
-ALERT_WINDOW = 1800  # 30 minutes
+ALERT_WINDOW = 1800
 MAX_TICKETS = 5000
 
-# -----------------------
-# Telegram sender
-# -----------------------
 
 def send(msg):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    requests.post(url, data={
-        "chat_id": CHAT_ID,
-        "text": msg
-    })
+    requests.post(url, data={"chat_id": CHAT_ID, "text": msg})
 
-
-# -----------------------
-# Prize value estimator
-# -----------------------
 
 def estimate_rrp(title):
 
@@ -50,17 +40,9 @@ def estimate_rrp(title):
     return 200
 
 
-# -----------------------
-# Overlay alert threshold
-# -----------------------
-
 def alert_threshold(rrp):
     return rrp * 0.4
 
-
-# -----------------------
-# Load ticket history
-# -----------------------
 
 history = {}
 
@@ -77,17 +59,24 @@ if Path(CSV_FILE).exists():
             }
 
 
-# -----------------------
-# Main scraper
-# -----------------------
-
 async def main():
 
     async with async_playwright() as p:
 
-        browser = await p.chromium.launch()
+        browser = await p.chromium.launch(
+            headless=True,
+            args=["--disable-dev-shm-usage", "--no-sandbox"]
+        )
 
         page = await browser.new_page()
+
+        # Block images/fonts/media for speed
+        await page.route(
+            "**/*",
+            lambda route: route.abort()
+            if route.request.resource_type in ["image", "font", "media"]
+            else route.continue_()
+        )
 
         pages_to_scan = 2
         all_cards = []
@@ -104,7 +93,7 @@ async def main():
             await page.wait_for_selector("li.product")
 
             await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-            await page.wait_for_timeout(3000)
+            await page.wait_for_timeout(1200)
 
             cards = await page.query_selector_all(
                 "li.product.type-product, li.swiper-slide"
