@@ -1,19 +1,12 @@
 import requests
 from bs4 import BeautifulSoup
 import os
+import re
 
 URL = "https://mashedpotatogolfcomps.co.uk/competitions"
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
-
-rrp_lookup = {
-"putter":300,
-"wedge":450,
-"staff bag":450,
-"driver":500,
-"golf balls":200
-}
 
 def send(msg):
 
@@ -24,38 +17,91 @@ def send(msg):
         "text":msg
     })
 
+
+# rough prize value detection
+def estimate_rrp(title):
+
+    title = title.lower()
+
+    if "driver" in title:
+        return 500
+
+    if "putter" in title:
+        return 300
+
+    if "wedge" in title:
+        return 450
+
+    if "bag" in title:
+        return 350
+
+    if "golf balls" in title:
+        return 200
+
+    if "rangefinder" in title:
+        return 250
+
+    return 200
+
+
 page = requests.get(URL)
 
 soup = BeautifulSoup(page.text,"html.parser")
 
-cards = soup.find_all("div",class_="competition-card")
+cards = soup.find_all("div")
 
-for c in cards:
+alerts = []
 
-    title = c.text.lower()
+for card in cards:
 
-    price = 0.29
-    sold_percent = 5
+    text = card.get_text(" ", strip=True)
 
-    for key in rrp_lookup:
+    if "£" in text and "%" in text:
 
-        if key in title:
+        try:
 
-            rrp = rrp_lookup[key]
+            price_match = re.search(r"£([0-9\.]+)",text)
+            percent_match = re.search(r"([0-9]+)%",text)
 
-            revenue = 5000*(sold_percent/100)*price
+            if not price_match or not percent_match:
+                continue
+
+            price = float(price_match.group(1))
+            sold_percent = float(percent_match.group(1))
+
+            title = text[:80]
+
+            rrp = estimate_rrp(title)
+
+            max_tickets = 5000
+
+            sold = max_tickets * (sold_percent/100)
+
+            revenue = sold * price
 
             overlay = rrp - revenue
 
             if overlay > 200:
 
-                send(f"""
-Overlay Opportunity!
+                alerts.append(
+f"""🔥 Overlay Opportunity
 
 {title}
 
-Estimated overlay £{round(overlay,2)}
+Ticket price: £{price}
+Sold: {sold_percent}%
 
-Ticket price £{price}
-""")
-send("Test message from GitHub bot")
+Estimated revenue: £{round(revenue,2)}
+Prize value: £{rrp}
+
+Overlay: £{round(overlay,2)}
+"""
+                )
+
+        except:
+            pass
+
+
+for a in alerts:
+    send(a)
+
