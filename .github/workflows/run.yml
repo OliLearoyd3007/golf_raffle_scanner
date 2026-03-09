@@ -1,9 +1,9 @@
 name: raffle-scanner
 
 on:
-  workflow_dispatch:
+  workflow_dispatch:        # allows manual trigger
   schedule:
-    - cron: "*/15 * * * *"
+    - cron: "*/15 * * * *" # runs every 15 minutes
 
 jobs:
   run:
