@@ -34,8 +34,7 @@ def estimate_rrp(title):
 # Dynamic overlay threshold based on RRP
 # -----------------------
 def alert_threshold(rrp):
-    # Alert if predicted overlay > 40% of RRP
-    return rrp * 0.4
+    return rrp * 0.4  # alert if predicted overlay > 40% of prize value
 
 # -----------------------
 # Load previous ticket history
@@ -60,26 +59,42 @@ async def main():
         cards = await page.query_selector_all("li.product.type-product")
         new_history = []
 
+        ALERT_WINDOW = 1800  # 30 minutes before draw
+
         for card in cards:
+            # -----------------------
             # Prize title
+            # -----------------------
             title_elem = await card.query_selector("h2.woocommerce-loop-product__title")
             title = await title_elem.inner_text() if title_elem else "Unknown Prize"
 
+            # Skip Instant Win competitions
+            if "instant win" in title.lower():
+                continue
+
+            # -----------------------
             # Ticket price
+            # -----------------------
             price_elem = await card.query_selector("span.woocommerce-Price-amount bdi")
             price = float((await price_elem.inner_text()).replace("£","")) if price_elem else 0.29
 
+            # -----------------------
             # % sold
+            # -----------------------
             sold_elem = await card.query_selector("span[class^='zapc-refresh-percentage']")
             sold_percent = float(await sold_elem.inner_text()) if sold_elem else 0
 
+            # -----------------------
             # Remaining tickets
+            # -----------------------
             remaining_elem = await card.query_selector("span[class^='zapc-refresh-remaining']")
             remaining = int(await remaining_elem.inner_text()) if remaining_elem else None
             max_tickets = 5000
             sold_tickets = max_tickets - remaining if remaining is not None else max_tickets*(sold_percent/100)
 
+            # -----------------------
             # Draw countdown
+            # -----------------------
             countdown = await card.query_selector("div.zapc-countdown")
             draw_in_seconds = 0
             if countdown:
@@ -96,7 +111,9 @@ async def main():
             now = time.time()
             predicted_sold = sold_tickets
 
+            # -----------------------
             # Predict sales velocity
+            # -----------------------
             if title in history:
                 last = history[title]
                 delta_time = now - last["time"]
@@ -105,19 +122,20 @@ async def main():
                     rate_per_sec = delta_sold / delta_time
                     predicted_sold = min(max_tickets, sold_tickets + rate_per_sec * draw_in_seconds)
 
+            # -----------------------
             # Overlay calculation
+            # -----------------------
             rrp = estimate_rrp(title)
             revenue = predicted_sold * price
             overlay = rrp - revenue
 
-            # Adaptive alert window with dynamic threshold
+            # -----------------------
+            # Alert logic (30 min window, dynamic threshold)
+            # -----------------------
             threshold = alert_threshold(rrp)
             alert = False
-            if draw_in_seconds <= 3600:           # last 1h
+            if 0 < draw_in_seconds <= ALERT_WINDOW:
                 alert = overlay > threshold
-            elif draw_in_seconds <= 21600:        # last 6h
-                alert = overlay > threshold * 1.5  # optional higher threshold for early heads-up
-            # else: do not alert
 
             if alert:
                 msg = f"""🔥 Overlay Opportunity (Predicted)
@@ -134,10 +152,14 @@ Time remaining: {draw_in_seconds//3600}h {(draw_in_seconds%3600)//60}m
 """
                 send(msg)
 
-            # Save history
+            # -----------------------
+            # Save ticket history
+            # -----------------------
             new_history.append({"title": title, "sold": sold_tickets, "timestamp": now})
 
-        # Update history CSV
+        # -----------------------
+        # Update CSV history
+        # -----------------------
         with open(CSV_FILE, "w", newline="") as f:
             writer = csv.DictWriter(f, fieldnames=["title","sold","timestamp"])
             writer.writeheader()
